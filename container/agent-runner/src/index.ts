@@ -407,7 +407,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        ...(process.env.AGENTMAIL_API_KEY ? ['mcp__agentmail__*'] : []),
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -423,6 +424,13 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(process.env.AGENTMAIL_API_KEY ? {
+          agentmail: {
+            command: 'npx',
+            args: ['-y', 'agentmail-mcp'],
+            env: { AGENTMAIL_API_KEY: process.env.AGENTMAIL_API_KEY },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],

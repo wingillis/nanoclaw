@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  OBSIDIAN_VAULT_PATH,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -26,8 +27,13 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
+
+// Read AgentMail API key once at startup so it can be injected into containers
+const _agentMailEnv = readEnvFile(['AGENTMAIL_API_KEY']);
+const AGENTMAIL_API_KEY = process.env.AGENTMAIL_API_KEY || _agentMailEnv.AGENTMAIL_API_KEY || '';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -111,6 +117,15 @@ function buildVolumeMounts(
         readonly: true,
       });
     }
+  }
+
+  // Obsidian vault — mounted for all groups when OBSIDIAN_VAULT_PATH is configured
+  if (OBSIDIAN_VAULT_PATH && fs.existsSync(OBSIDIAN_VAULT_PATH)) {
+    mounts.push({
+      hostPath: OBSIDIAN_VAULT_PATH,
+      containerPath: '/workspace/obsidian',
+      readonly: false,
+    });
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -236,6 +251,11 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Pass AgentMail API key so agentmail-mcp can run inside the container
+  if (AGENTMAIL_API_KEY) {
+    args.push('-e', `AGENTMAIL_API_KEY=${AGENTMAIL_API_KEY}`);
   }
 
   // Runtime-specific args for host gateway resolution
