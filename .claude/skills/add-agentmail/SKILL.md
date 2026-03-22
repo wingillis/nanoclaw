@@ -1,11 +1,11 @@
 ---
 name: add-agentmail
-description: Add AgentMail email channel to NanoClaw. Creates a dedicated inbox at agentmail.to, polls for incoming emails, and gives container agents email tools (read, reply, send) via agentmail-mcp. Agents auto-reply to forwarded emails.
+description: Add AgentMail email channel to NanoClaw. Polls an agentmail.to inbox for incoming emails and auto-replies via the host process. API key never enters containers — same security model as Telegram/Discord.
 ---
 
 # Add AgentMail Email Channel
 
-This skill adds an [AgentMail](https://agentmail.to) inbox to NanoClaw. Agents get a dedicated email address and can read and reply to emails autonomously using the `agentmail-mcp` tools.
+This skill adds an [AgentMail](https://agentmail.to) inbox to NanoClaw. Agents receive emails as messages and reply via the host process — the API key never enters containers, following the same security model as Telegram and Discord.
 
 ## Phase 1: Pre-flight
 

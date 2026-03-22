@@ -47,7 +47,7 @@ export class AgentMailChannel implements Channel {
 
   private client: AgentMailClient;
   private inboxId: string;
-  private inboxEmail = '';
+  private inboxEmail: string;
   private opts: ChannelOpts;
   private connected = false;
   private seenIds = new Set<string>();
@@ -55,23 +55,43 @@ export class AgentMailChannel implements Channel {
   private pollTimer: NodeJS.Timeout | null = null;
   private pollInterval: number;
 
+  /**
+   * Maps chatJid → most recent inbound messageId.
+   * Used by sendMessage() to reply to the correct email thread.
+   * AGENTMAIL_API_KEY stays on the host — no credentials pass to containers.
+   */
+  private pendingReplyId = new Map<string, string>();
+
   constructor(
     apiKey: string,
     inboxId: string,
+    inboxEmail: string,
     opts: ChannelOpts,
     pollInterval = DEFAULT_POLL_INTERVAL,
   ) {
     this.client = new AgentMailClient({ apiKey });
     this.inboxId = inboxId;
+    this.inboxEmail = inboxEmail;
     this.opts = opts;
     this.pollInterval = pollInterval;
   }
 
   async connect(): Promise<void> {
+    // Resolve inbox: by ID, by email address, or create new
     if (this.inboxId) {
       const inbox = await this.client.inboxes.get(this.inboxId);
       this.inboxEmail = inbox.email;
+    } else if (this.inboxEmail) {
+      // Look up inbox by email address
+      const result = await this.client.inboxes.list();
+      const found = result.inboxes.find((i) => i.email === this.inboxEmail);
+      if (!found) {
+        throw new Error(`AgentMail inbox not found for email: ${this.inboxEmail}`);
+      }
+      this.inboxId = found.inboxId;
+      saveState({ inboxId: this.inboxId, email: this.inboxEmail });
     } else {
+      // Auto-create an inbox
       const inbox = await this.client.inboxes.create({ displayName: 'NanoClaw' });
       this.inboxId = inbox.inboxId;
       this.inboxEmail = inbox.email;
@@ -132,7 +152,10 @@ export class AgentMailChannel implements Channel {
 
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) {
-        logger.debug({ chatJid, from }, 'Email from unregistered AgentMail inbox (register it first)');
+        logger.debug(
+          { chatJid, from },
+          'Email from unregistered AgentMail inbox (register it first)',
+        );
         continue;
       }
 
@@ -144,6 +167,10 @@ export class AgentMailChannel implements Channel {
       } catch (err) {
         logger.warn({ err, messageId: item.messageId }, 'AgentMail: could not fetch message body');
       }
+
+      // Track the latest inbound message ID so sendMessage() can reply correctly.
+      // AGENTMAIL_API_KEY stays on the host — same security model as Telegram/Discord.
+      this.pendingReplyId.set(chatJid, item.messageId);
 
       const content = [
         `[Email from: ${fromName} <${from}>]`,
@@ -168,10 +195,23 @@ export class AgentMailChannel implements Channel {
   }
 
   /**
-   * Email replies are sent by agents via the agentmail-mcp tools inside the
-   * container. The container's final text output is not delivered as email.
+   * Reply to the most recent inbound email in this chat.
+   * API key never leaves the host — same security model as Telegram/Discord.
    */
-  async sendMessage(_jid: string, _text: string): Promise<void> {}
+  async sendMessage(jid: string, text: string): Promise<void> {
+    const messageId = this.pendingReplyId.get(jid);
+    if (!messageId) {
+      logger.warn({ jid }, 'AgentMail: no pending message ID to reply to');
+      return;
+    }
+
+    try {
+      await this.client.inboxes.messages.reply(this.inboxId, messageId, { text });
+      logger.info({ jid, messageId }, 'AgentMail reply sent');
+    } catch (err) {
+      logger.error({ jid, messageId, err }, 'AgentMail: failed to send reply');
+    }
+  }
 
   isConnected(): boolean {
     return this.connected;
@@ -192,18 +232,27 @@ export class AgentMailChannel implements Channel {
 }
 
 registerChannel('agentmail', (opts: ChannelOpts) => {
-  const envVars = readEnvFile(['AGENTMAIL_API_KEY', 'AGENTMAIL_INBOX_ID', 'AGENTMAIL_POLL_INTERVAL']);
+  const envVars = readEnvFile([
+    'AGENTMAIL_API_KEY',
+    'AGENTMAIL_INBOX_ID',
+    'AGENTMAIL_INBOX_EMAIL',
+    'AGENTMAIL_POLL_INTERVAL',
+  ]);
   const apiKey = process.env.AGENTMAIL_API_KEY || envVars.AGENTMAIL_API_KEY || '';
   if (!apiKey) {
     logger.debug('AgentMail: AGENTMAIL_API_KEY not set, skipping');
     return null;
   }
 
-  // Inbox ID resolution priority: env var → persisted state file → auto-create on connect
+  // Inbox resolution priority: inbox ID → email address → persisted state → auto-create
   let inboxId = process.env.AGENTMAIL_INBOX_ID || envVars.AGENTMAIL_INBOX_ID || '';
-  if (!inboxId) {
+  let inboxEmail = process.env.AGENTMAIL_INBOX_EMAIL || envVars.AGENTMAIL_INBOX_EMAIL || '';
+  if (!inboxId && !inboxEmail) {
     const state = loadState();
-    if (state) inboxId = state.inboxId;
+    if (state) {
+      inboxId = state.inboxId;
+      inboxEmail = state.email;
+    }
   }
 
   const pollInterval = parseInt(
@@ -211,5 +260,5 @@ registerChannel('agentmail', (opts: ChannelOpts) => {
     10,
   );
 
-  return new AgentMailChannel(apiKey, inboxId, opts, pollInterval);
+  return new AgentMailChannel(apiKey, inboxId, inboxEmail, opts, pollInterval);
 });

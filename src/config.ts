@@ -71,3 +71,8 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// Obsidian vault path — mounted into containers at /workspace/obsidian when set
+export const OBSIDIAN_VAULT_PATH = process.env.OBSIDIAN_VAULT_PATH
+  ? path.resolve(process.env.OBSIDIAN_VAULT_PATH.replace(/^~/, HOME_DIR))
+  : null;
