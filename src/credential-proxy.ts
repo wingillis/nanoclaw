@@ -56,11 +56,36 @@ export function startCredentialProxy(
   // passes. Actual requests still have model names rewritten (see below).
   const syntheticModels = JSON.stringify({
     data: [
-      { id: 'claude-opus-4-6', type: 'model', display_name: 'Claude Opus 4.6', created_at: '2025-01-01T00:00:00Z' },
-      { id: 'claude-sonnet-4-6', type: 'model', display_name: 'Claude Sonnet 4.6', created_at: '2025-01-01T00:00:00Z' },
-      { id: 'claude-haiku-4-5', type: 'model', display_name: 'Claude Haiku 4.5', created_at: '2025-01-01T00:00:00Z' },
-      { id: 'claude-opus-4-5', type: 'model', display_name: 'Claude Opus 4.5', created_at: '2025-01-01T00:00:00Z' },
-      { id: 'claude-sonnet-4-5', type: 'model', display_name: 'Claude Sonnet 4.5', created_at: '2025-01-01T00:00:00Z' },
+      {
+        id: 'claude-opus-4-6',
+        type: 'model',
+        display_name: 'Claude Opus 4.6',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 'claude-sonnet-4-6',
+        type: 'model',
+        display_name: 'Claude Sonnet 4.6',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 'claude-haiku-4-5',
+        type: 'model',
+        display_name: 'Claude Haiku 4.5',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 'claude-opus-4-5',
+        type: 'model',
+        display_name: 'Claude Opus 4.5',
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 'claude-sonnet-4-5',
+        type: 'model',
+        display_name: 'Claude Sonnet 4.5',
+        created_at: '2025-01-01T00:00:00Z',
+      },
     ],
   });
 
@@ -92,7 +117,8 @@ export function startCredentialProxy(
               const m = parsed.model.toLowerCase();
               let target: string | undefined;
               if (m.includes('opus') && opusOverride) target = opusOverride;
-              else if (m.includes('haiku') && haikuOverride) target = haikuOverride;
+              else if (m.includes('haiku') && haikuOverride)
+                target = haikuOverride;
               else if (sonnetOverride) target = sonnetOverride;
               if (target && target !== parsed.model) {
                 parsed.model = target;
@@ -134,7 +160,12 @@ export function startCredentialProxy(
         }
 
         logger.info(
-          { method: req.method, url: req.url, authMode, bodySnippet: body.toString().slice(0, 200) },
+          {
+            method: req.method,
+            url: req.url,
+            authMode,
+            bodySnippet: body.toString().slice(0, 200),
+          },
           'Credential proxy forwarding request',
         );
 
@@ -156,7 +187,11 @@ export function startCredentialProxy(
             upRes.on('end', () => {
               const respBody = Buffer.concat(respChunks);
               logger.info(
-                { status: upRes.statusCode, url: upstreamPath, responseSnippet: respBody.toString().slice(0, 300) },
+                {
+                  status: upRes.statusCode,
+                  url: upstreamPath,
+                  responseSnippet: respBody.toString().slice(0, 300),
+                },
                 'Credential proxy upstream response',
               );
               res.writeHead(upRes.statusCode!, upRes.headers);
@@ -193,5 +228,7 @@ export function startCredentialProxy(
 /** Detect which auth mode the host is configured for. */
 export function detectAuthMode(): AuthMode {
   const secrets = readEnvFile(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']);
-  return (secrets.ANTHROPIC_API_KEY || secrets.ANTHROPIC_AUTH_TOKEN) ? 'api-key' : 'oauth';
+  return secrets.ANTHROPIC_API_KEY || secrets.ANTHROPIC_AUTH_TOKEN
+    ? 'api-key'
+    : 'oauth';
 }
