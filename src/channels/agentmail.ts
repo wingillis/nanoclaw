@@ -6,6 +6,7 @@ import { AgentMailClient } from 'agentmail';
 import { DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
+import { toEmailHtml } from '../markdown.js';
 import { Channel } from '../types.js';
 import { ChannelOpts, registerChannel } from './registry.js';
 
@@ -86,27 +87,39 @@ export class AgentMailChannel implements Channel {
       const result = await this.client.inboxes.list();
       const found = result.inboxes.find((i) => i.email === this.inboxEmail);
       if (!found) {
-        throw new Error(`AgentMail inbox not found for email: ${this.inboxEmail}`);
+        throw new Error(
+          `AgentMail inbox not found for email: ${this.inboxEmail}`,
+        );
       }
       this.inboxId = found.inboxId;
       saveState({ inboxId: this.inboxId, email: this.inboxEmail });
     } else {
       // Auto-create an inbox
-      const inbox = await this.client.inboxes.create({ displayName: 'NanoClaw' });
+      const inbox = await this.client.inboxes.create({
+        displayName: 'NanoClaw',
+      });
       this.inboxId = inbox.inboxId;
       this.inboxEmail = inbox.email;
       saveState({ inboxId: this.inboxId, email: this.inboxEmail });
-      logger.info({ inboxId: this.inboxId, email: this.inboxEmail }, 'AgentMail: inbox created');
+      logger.info(
+        { inboxId: this.inboxId, email: this.inboxEmail },
+        'AgentMail: inbox created',
+      );
     }
 
     // Seed seenIds with existing messages so we don't replay history on startup
     this.lastPollTime = new Date();
     try {
-      const result = await this.client.inboxes.messages.list(this.inboxId, { limit: 100 });
+      const result = await this.client.inboxes.messages.list(this.inboxId, {
+        limit: 100,
+      });
       for (const msg of result.messages) {
         this.seenIds.add(msg.messageId);
       }
-      logger.debug({ count: this.seenIds.size }, 'AgentMail: seeded seen message IDs');
+      logger.debug(
+        { count: this.seenIds.size },
+        'AgentMail: seeded seen message IDs',
+      );
     } catch (err) {
       logger.warn({ err }, 'AgentMail: failed to seed seen IDs');
     }
@@ -116,11 +129,16 @@ export class AgentMailChannel implements Channel {
       this.poll().catch((err) => logger.error({ err }, 'AgentMail poll error'));
     }, this.pollInterval);
 
-    logger.info({ inboxId: this.inboxId, email: this.inboxEmail }, 'AgentMail channel connected');
+    logger.info(
+      { inboxId: this.inboxId, email: this.inboxEmail },
+      'AgentMail channel connected',
+    );
     console.log(`\n  AgentMail inbox: ${this.inboxEmail}`);
     console.log(`  Forward emails here for agents to respond`);
     if (!process.env.AGENTMAIL_INBOX_ID) {
-      console.log(`  Tip: set AGENTMAIL_INBOX_ID=${this.inboxId} in .env to persist`);
+      console.log(
+        `  Tip: set AGENTMAIL_INBOX_ID=${this.inboxId} in .env to persist`,
+      );
     }
     console.log('');
   }
@@ -148,7 +166,13 @@ export class AgentMailChannel implements Channel {
       const threadId = item.threadId;
 
       // Report metadata for chat discovery
-      this.opts.onChatMetadata(chatJid, timestamp, 'AgentMail Inbox', 'agentmail', false);
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        'AgentMail Inbox',
+        'agentmail',
+        false,
+      );
 
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) {
@@ -162,10 +186,16 @@ export class AgentMailChannel implements Channel {
       // Fetch full message to get body (list only returns preview)
       let body = item.preview ?? '';
       try {
-        const full = await this.client.inboxes.messages.get(this.inboxId, item.messageId);
+        const full = await this.client.inboxes.messages.get(
+          this.inboxId,
+          item.messageId,
+        );
         body = full.extractedText ?? full.text ?? body;
       } catch (err) {
-        logger.warn({ err, messageId: item.messageId }, 'AgentMail: could not fetch message body');
+        logger.warn(
+          { err, messageId: item.messageId },
+          'AgentMail: could not fetch message body',
+        );
       }
 
       // Track the latest inbound message ID so sendMessage() can reply correctly.
@@ -206,7 +236,10 @@ export class AgentMailChannel implements Channel {
     }
 
     try {
-      await this.client.inboxes.messages.reply(this.inboxId, messageId, { text });
+      await this.client.inboxes.messages.reply(this.inboxId, messageId, {
+        text,
+        html: toEmailHtml(text),
+      });
       logger.info({ jid, messageId }, 'AgentMail reply sent');
     } catch (err) {
       logger.error({ jid, messageId, err }, 'AgentMail: failed to send reply');
@@ -238,15 +271,18 @@ registerChannel('agentmail', (opts: ChannelOpts) => {
     'AGENTMAIL_INBOX_EMAIL',
     'AGENTMAIL_POLL_INTERVAL',
   ]);
-  const apiKey = process.env.AGENTMAIL_API_KEY || envVars.AGENTMAIL_API_KEY || '';
+  const apiKey =
+    process.env.AGENTMAIL_API_KEY || envVars.AGENTMAIL_API_KEY || '';
   if (!apiKey) {
     logger.debug('AgentMail: AGENTMAIL_API_KEY not set, skipping');
     return null;
   }
 
   // Inbox resolution priority: inbox ID → email address → persisted state → auto-create
-  let inboxId = process.env.AGENTMAIL_INBOX_ID || envVars.AGENTMAIL_INBOX_ID || '';
-  let inboxEmail = process.env.AGENTMAIL_INBOX_EMAIL || envVars.AGENTMAIL_INBOX_EMAIL || '';
+  let inboxId =
+    process.env.AGENTMAIL_INBOX_ID || envVars.AGENTMAIL_INBOX_ID || '';
+  let inboxEmail =
+    process.env.AGENTMAIL_INBOX_EMAIL || envVars.AGENTMAIL_INBOX_EMAIL || '';
   if (!inboxId && !inboxEmail) {
     const state = loadState();
     if (state) {
@@ -256,7 +292,9 @@ registerChannel('agentmail', (opts: ChannelOpts) => {
   }
 
   const pollInterval = parseInt(
-    process.env.AGENTMAIL_POLL_INTERVAL || envVars.AGENTMAIL_POLL_INTERVAL || '30000',
+    process.env.AGENTMAIL_POLL_INTERVAL ||
+      envVars.AGENTMAIL_POLL_INTERVAL ||
+      '30000',
     10,
   );
 
