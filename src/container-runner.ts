@@ -118,12 +118,16 @@ function buildVolumeMounts(
   }
 
   // Obsidian vault — mounted for all groups when OBSIDIAN_VAULT_PATH is configured
-  if (OBSIDIAN_VAULT_PATH && fs.existsSync(OBSIDIAN_VAULT_PATH)) {
-    mounts.push({
-      hostPath: OBSIDIAN_VAULT_PATH,
-      containerPath: '/workspace/obsidian',
-      readonly: false,
-    });
+  if (OBSIDIAN_VAULT_PATH) {
+    if (fs.existsSync(OBSIDIAN_VAULT_PATH)) {
+      mounts.push({
+        hostPath: OBSIDIAN_VAULT_PATH,
+        containerPath: '/workspace/obsidian',
+        readonly: false,
+      });
+    } else {
+      logger.warn({ path: OBSIDIAN_VAULT_PATH }, 'OBSIDIAN_VAULT_PATH is set but directory does not exist — vault will not be mounted');
+    }
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -326,7 +330,11 @@ export async function runContainerAgent(
   const icloudEnv = readEnvFile(['ICLOUD_USERNAME', 'ICLOUD_PASSWORD']);
   const containerInput: ContainerInput =
     icloudEnv.ICLOUD_USERNAME && icloudEnv.ICLOUD_PASSWORD
-      ? { ...input, icloudUsername: icloudEnv.ICLOUD_USERNAME, icloudAppPassword: icloudEnv.ICLOUD_PASSWORD }
+      ? {
+          ...input,
+          icloudUsername: icloudEnv.ICLOUD_USERNAME,
+          icloudAppPassword: icloudEnv.ICLOUD_PASSWORD,
+        }
       : input;
 
   return new Promise((resolve) => {
