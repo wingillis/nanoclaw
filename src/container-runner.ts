@@ -27,7 +27,6 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
-import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -43,8 +42,6 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
-  icloudUsername?: string;
-  icloudAppPassword?: string;
 }
 
 export interface ContainerOutput {
@@ -118,19 +115,12 @@ function buildVolumeMounts(
   }
 
   // Obsidian vault — mounted for all groups when OBSIDIAN_VAULT_PATH is configured
-  if (OBSIDIAN_VAULT_PATH) {
-    if (fs.existsSync(OBSIDIAN_VAULT_PATH)) {
-      mounts.push({
-        hostPath: OBSIDIAN_VAULT_PATH,
-        containerPath: '/workspace/obsidian',
-        readonly: false,
-      });
-    } else {
-      logger.warn(
-        { path: OBSIDIAN_VAULT_PATH },
-        'OBSIDIAN_VAULT_PATH is set but directory does not exist — vault will not be mounted',
-      );
-    }
+  if (OBSIDIAN_VAULT_PATH && fs.existsSync(OBSIDIAN_VAULT_PATH)) {
+    mounts.push({
+      hostPath: OBSIDIAN_VAULT_PATH,
+      containerPath: '/workspace/obsidian',
+      readonly: false,
+    });
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -210,19 +200,8 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (fs.existsSync(agentRunnerSrc)) {
-    // First run: copy the full directory so the group starts with all source files.
-    if (!fs.existsSync(groupAgentRunnerDir)) {
-      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
-    } else {
-      // On subsequent runs, always overwrite index.ts from the canonical source
-      // so core system updates (new MCP servers, tool changes) propagate automatically.
-      // Extra files added by the group alongside index.ts are preserved.
-      fs.copyFileSync(
-        path.join(agentRunnerSrc, 'index.ts'),
-        path.join(groupAgentRunnerDir, 'index.ts'),
-      );
-    }
+  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -337,20 +316,6 @@ export async function runContainerAgent(
   const logsDir = path.join(groupDir, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
-  // Inject iCloud credentials from host .env into container input so the
-  // agent-runner can pass them to the icloud_calendar MCP subprocess.
-  // The .env file is shadowed to /dev/null inside containers, so credentials
-  // never reach the agent directly — only the MCP child process sees them.
-  const icloudEnv = readEnvFile(['ICLOUD_USERNAME', 'ICLOUD_PASSWORD']);
-  const containerInput: ContainerInput =
-    icloudEnv.ICLOUD_USERNAME && icloudEnv.ICLOUD_PASSWORD
-      ? {
-          ...input,
-          icloudUsername: icloudEnv.ICLOUD_USERNAME,
-          icloudAppPassword: icloudEnv.ICLOUD_PASSWORD,
-        }
-      : input;
-
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -363,7 +328,7 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    container.stdin.write(JSON.stringify(containerInput));
+    container.stdin.write(JSON.stringify(input));
     container.stdin.end();
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive

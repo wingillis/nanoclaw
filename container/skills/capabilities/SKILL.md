@@ -40,7 +40,6 @@ Read the allowed tools from your SDK configuration. You always have access to:
 - **Orchestration:** Task, TaskOutput, TaskStop, TeamCreate, TeamDelete, SendMessage
 - **Other:** TodoWrite, ToolSearch, Skill, NotebookEdit
 - **MCP:** mcp__nanoclaw__* (messaging, tasks, group management)
-- **MCP:** mcp__icloud_calendar__* (list_calendars, get_events, create_event, update_event, delete_event) — if configured
 
 ### 3. MCP server tools
 
