@@ -126,7 +126,10 @@ function buildVolumeMounts(
         readonly: false,
       });
     } else {
-      logger.warn({ path: OBSIDIAN_VAULT_PATH }, 'OBSIDIAN_VAULT_PATH is set but directory does not exist — vault will not be mounted');
+      logger.warn(
+        { path: OBSIDIAN_VAULT_PATH },
+        'OBSIDIAN_VAULT_PATH is set but directory does not exist — vault will not be mounted',
+      );
     }
   }
 
@@ -207,8 +210,19 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  if (fs.existsSync(agentRunnerSrc)) {
+    // First run: copy the full directory so the group starts with all source files.
+    if (!fs.existsSync(groupAgentRunnerDir)) {
+      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    } else {
+      // On subsequent runs, always overwrite index.ts from the canonical source
+      // so core system updates (new MCP servers, tool changes) propagate automatically.
+      // Extra files added by the group alongside index.ts are preserved.
+      fs.copyFileSync(
+        path.join(agentRunnerSrc, 'index.ts'),
+        path.join(groupAgentRunnerDir, 'index.ts'),
+      );
+    }
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
