@@ -27,6 +27,8 @@ interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  icloudUsername?: string;
+  icloudAppPassword?: string;
 }
 
 interface ContainerOutput {
@@ -407,7 +409,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__icloud_calendar__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -423,6 +426,18 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(containerInput.icloudUsername && containerInput.icloudAppPassword
+          ? {
+              icloud_calendar: {
+                command: 'npx',
+                args: ['-y', '@icloud-calendar-mcp/server'],
+                env: {
+                  ICLOUD_USERNAME: containerInput.icloudUsername,
+                  ICLOUD_PASSWORD: containerInput.icloudAppPassword,
+                },
+              },
+            }
+          : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],

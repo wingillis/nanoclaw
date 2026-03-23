@@ -27,6 +27,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -42,6 +43,8 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  icloudUsername?: string;
+  icloudAppPassword?: string;
 }
 
 export interface ContainerOutput {
@@ -316,6 +319,16 @@ export async function runContainerAgent(
   const logsDir = path.join(groupDir, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
+  // Inject iCloud credentials from host .env into container input so the
+  // agent-runner can pass them to the icloud_calendar MCP subprocess.
+  // The .env file is shadowed to /dev/null inside containers, so credentials
+  // never reach the agent directly — only the MCP child process sees them.
+  const icloudEnv = readEnvFile(['ICLOUD_USERNAME', 'ICLOUD_PASSWORD']);
+  const containerInput: ContainerInput =
+    icloudEnv.ICLOUD_USERNAME && icloudEnv.ICLOUD_PASSWORD
+      ? { ...input, icloudUsername: icloudEnv.ICLOUD_USERNAME, icloudAppPassword: icloudEnv.ICLOUD_PASSWORD }
+      : input;
+
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -328,7 +341,7 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    container.stdin.write(JSON.stringify(input));
+    container.stdin.write(JSON.stringify(containerInput));
     container.stdin.end();
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
