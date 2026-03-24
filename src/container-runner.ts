@@ -244,7 +244,9 @@ function buildContainerArgs(
   // Local profile: local model proxy (port 3002) → llama-server, no real auth needed.
   // Default:       credential proxy (port 3001) → Anthropic, injects real credentials.
   const proxyPort =
-    modelProfile === 'local' ? LLM_ROUTER_LOCAL_PROXY_PORT : CREDENTIAL_PROXY_PORT;
+    modelProfile === 'local'
+      ? LLM_ROUTER_LOCAL_PROXY_PORT
+      : CREDENTIAL_PROXY_PORT;
   args.push(
     '-e',
     `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${proxyPort}`,
@@ -306,7 +308,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName, input.modelProfile);
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    input.modelProfile,
+  );
 
   logger.debug(
     {

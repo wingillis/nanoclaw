@@ -9,10 +9,7 @@ import { createServer, Server } from 'http';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 
-import {
-  LLM_ROUTER_BASE_URL,
-  LLM_ROUTER_CLASSIFIER_MODEL,
-} from './config.js';
+import { LLM_ROUTER_BASE_URL, LLM_ROUTER_CLASSIFIER_MODEL } from './config.js';
 import { logger } from './logger.js';
 import type { NewMessage } from './types.js';
 
@@ -66,9 +63,9 @@ export async function classifyComplexity(
   const data = (await res.json()) as {
     choices: { message: { content: string } }[];
   };
-  const parsed = JSON.parse(
-    data.choices?.[0]?.message?.content || '{}',
-  ) as { complexity?: string };
+  const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}') as {
+    complexity?: string;
+  };
   const label = parsed.complexity?.toLowerCase();
 
   if (label === 'simple') return 'simple';
@@ -165,7 +162,10 @@ export function startLocalModelProxy(
           },
         );
         upReq.on('error', (err) => {
-          logger.error({ err, url: req.url }, 'Local model proxy upstream error');
+          logger.error(
+            { err, url: req.url },
+            'Local model proxy upstream error',
+          );
           if (!res.headersSent) {
             res.writeHead(502);
             res.end('Bad Gateway');

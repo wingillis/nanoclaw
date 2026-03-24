@@ -8,7 +8,11 @@ import { readEnvFile } from './env.js';
 // by the credential proxy (credential-proxy.ts), never exposed to containers.
 // Exception: third-party service credentials (CalDAV etc.) that containers
 // need directly are read here and injected as explicit -e env vars.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'OBSIDIAN_VAULT_PATH']);
+const envConfig = readEnvFile([
+  'ASSISTANT_NAME',
+  'ASSISTANT_HAS_OWN_NUMBER',
+  'OBSIDIAN_VAULT_PATH',
+]);
 const calDavEnv = readEnvFile(['CALDAV_USERNAME', 'CALDAV_PASSWORD']);
 const llmRouterEnv = readEnvFile([
   'LLM_ROUTER_ENABLED',
@@ -97,14 +101,24 @@ export const CALDAV_PASSWORD =
 
 // LLM Router — classify and route simple requests to a local model to save API costs
 export const LLM_ROUTER_ENABLED =
-  (process.env.LLM_ROUTER_ENABLED || llmRouterEnv.LLM_ROUTER_ENABLED || 'false') === 'true';
+  (process.env.LLM_ROUTER_ENABLED ||
+    llmRouterEnv.LLM_ROUTER_ENABLED ||
+    'false') === 'true';
 export const LLM_ROUTER_BASE_URL =
-  process.env.LLM_ROUTER_BASE_URL || llmRouterEnv.LLM_ROUTER_BASE_URL || 'http://localhost:12345';
+  process.env.LLM_ROUTER_BASE_URL ||
+  llmRouterEnv.LLM_ROUTER_BASE_URL ||
+  'http://localhost:12345';
 export const LLM_ROUTER_CLASSIFIER_MODEL =
-  process.env.LLM_ROUTER_CLASSIFIER_MODEL || llmRouterEnv.LLM_ROUTER_CLASSIFIER_MODEL || 'qwen3.5-0.8b';
+  process.env.LLM_ROUTER_CLASSIFIER_MODEL ||
+  llmRouterEnv.LLM_ROUTER_CLASSIFIER_MODEL ||
+  'qwen3.5-0.8b';
 export const LLM_ROUTER_LOCAL_MODEL =
-  process.env.LLM_ROUTER_LOCAL_MODEL || llmRouterEnv.LLM_ROUTER_LOCAL_MODEL || 'qwen3.5-9b';
+  process.env.LLM_ROUTER_LOCAL_MODEL ||
+  llmRouterEnv.LLM_ROUTER_LOCAL_MODEL ||
+  'qwen3.5-9b';
 export const LLM_ROUTER_LOCAL_PROXY_PORT = parseInt(
-  process.env.LLM_ROUTER_LOCAL_PROXY_PORT || llmRouterEnv.LLM_ROUTER_LOCAL_PROXY_PORT || '3002',
+  process.env.LLM_ROUTER_LOCAL_PROXY_PORT ||
+    llmRouterEnv.LLM_ROUTER_LOCAL_PROXY_PORT ||
+    '3002',
   10,
 );

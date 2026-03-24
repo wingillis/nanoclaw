@@ -137,7 +137,10 @@ export class AgentMailChannel implements Channel {
         removeLabels: ['unread'],
       });
     } catch (err) {
-      logger.warn({ err, messageId }, 'AgentMail: failed to mark message as read');
+      logger.warn(
+        { err, messageId },
+        'AgentMail: failed to mark message as read',
+      );
     }
   }
 
@@ -153,14 +156,21 @@ export class AgentMailChannel implements Channel {
       const { name: fromName, email: from } = parseFrom(item.from);
 
       // Mark self-sent emails as read immediately to prevent forwarding loops
-      if (this.inboxEmail && from.toLowerCase() === this.inboxEmail.toLowerCase()) {
+      if (
+        this.inboxEmail &&
+        from.toLowerCase() === this.inboxEmail.toLowerCase()
+      ) {
         logger.debug({ from }, 'AgentMail: marking self-sent email as read');
         await this.markRead(item.messageId);
         continue;
       }
 
       // Only respond to allowed senders
-      if (!ALLOWED_SENDERS.map(e => e.toLowerCase()).includes(from.toLowerCase())) {
+      if (
+        !ALLOWED_SENDERS.map((e) => e.toLowerCase()).includes(
+          from.toLowerCase(),
+        )
+      ) {
         logger.debug({ from }, 'AgentMail: sender not in allowlist, skipping');
         await this.markRead(item.messageId);
         continue;
