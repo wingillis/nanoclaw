@@ -6,7 +6,17 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets (API keys, tokens) are NOT read here — they are loaded only
 // by the credential proxy (credential-proxy.ts), never exposed to containers.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER']);
+// Exception: third-party service credentials (CalDAV etc.) that containers
+// need directly are read here and injected as explicit -e env vars.
+const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'OBSIDIAN_VAULT_PATH']);
+const calDavEnv = readEnvFile(['CALDAV_USERNAME', 'CALDAV_PASSWORD']);
+const llmRouterEnv = readEnvFile([
+  'LLM_ROUTER_ENABLED',
+  'LLM_ROUTER_BASE_URL',
+  'LLM_ROUTER_CLASSIFIER_MODEL',
+  'LLM_ROUTER_LOCAL_MODEL',
+  'LLM_ROUTER_LOCAL_PROXY_PORT',
+]);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -73,6 +83,28 @@ export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // Obsidian vault path — mounted into containers at /workspace/obsidian when set
-export const OBSIDIAN_VAULT_PATH = process.env.OBSIDIAN_VAULT_PATH
-  ? path.resolve(process.env.OBSIDIAN_VAULT_PATH.replace(/^~/, HOME_DIR))
+const rawObsidianPath =
+  process.env.OBSIDIAN_VAULT_PATH || envConfig.OBSIDIAN_VAULT_PATH;
+export const OBSIDIAN_VAULT_PATH = rawObsidianPath
+  ? path.resolve(rawObsidianPath.replace(/^~/, HOME_DIR))
   : null;
+
+// iCloud CalDAV credentials — injected into containers as env vars when set
+export const CALDAV_USERNAME =
+  process.env.CALDAV_USERNAME || calDavEnv.CALDAV_USERNAME || null;
+export const CALDAV_PASSWORD =
+  process.env.CALDAV_PASSWORD || calDavEnv.CALDAV_PASSWORD || null;
+
+// LLM Router — classify and route simple requests to a local model to save API costs
+export const LLM_ROUTER_ENABLED =
+  (process.env.LLM_ROUTER_ENABLED || llmRouterEnv.LLM_ROUTER_ENABLED || 'false') === 'true';
+export const LLM_ROUTER_BASE_URL =
+  process.env.LLM_ROUTER_BASE_URL || llmRouterEnv.LLM_ROUTER_BASE_URL || 'http://localhost:12345';
+export const LLM_ROUTER_CLASSIFIER_MODEL =
+  process.env.LLM_ROUTER_CLASSIFIER_MODEL || llmRouterEnv.LLM_ROUTER_CLASSIFIER_MODEL || 'qwen3.5-0.8b';
+export const LLM_ROUTER_LOCAL_MODEL =
+  process.env.LLM_ROUTER_LOCAL_MODEL || llmRouterEnv.LLM_ROUTER_LOCAL_MODEL || 'qwen3.5-9b';
+export const LLM_ROUTER_LOCAL_PROXY_PORT = parseInt(
+  process.env.LLM_ROUTER_LOCAL_PROXY_PORT || llmRouterEnv.LLM_ROUTER_LOCAL_PROXY_PORT || '3002',
+  10,
+);

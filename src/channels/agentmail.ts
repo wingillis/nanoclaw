@@ -13,6 +13,12 @@ import { ChannelOpts, registerChannel } from './registry.js';
 const STATE_FILE = path.join(DATA_DIR, 'agentmail.json');
 const DEFAULT_POLL_INTERVAL = 30000;
 
+const ALLOWED_SENDERS = [
+  'win.gillis@gmail.com',
+  'win.gillis@proton.me',
+  'wgillis@bu.edu',
+];
+
 interface AgentMailState {
   inboxId: string;
   email: string;
@@ -51,8 +57,6 @@ export class AgentMailChannel implements Channel {
   private inboxEmail: string;
   private opts: ChannelOpts;
   private connected = false;
-  private seenIds = new Set<string>();
-  private lastPollTime = new Date();
   private pollTimer: NodeJS.Timeout | null = null;
   private pollInterval: number;
 
@@ -107,23 +111,6 @@ export class AgentMailChannel implements Channel {
       );
     }
 
-    // Seed seenIds with existing messages so we don't replay history on startup
-    this.lastPollTime = new Date();
-    try {
-      const result = await this.client.inboxes.messages.list(this.inboxId, {
-        limit: 100,
-      });
-      for (const msg of result.messages) {
-        this.seenIds.add(msg.messageId);
-      }
-      logger.debug(
-        { count: this.seenIds.size },
-        'AgentMail: seeded seen message IDs',
-      );
-    } catch (err) {
-      logger.warn({ err }, 'AgentMail: failed to seed seen IDs');
-    }
-
     this.connected = true;
     this.pollTimer = setInterval(() => {
       this.poll().catch((err) => logger.error({ err }, 'AgentMail poll error'));
@@ -143,27 +130,41 @@ export class AgentMailChannel implements Channel {
     console.log('');
   }
 
-  private async poll(): Promise<void> {
-    const pollStart = new Date();
+  private async markRead(messageId: string): Promise<void> {
+    try {
+      await this.client.inboxes.messages.update(this.inboxId, messageId, {
+        addLabels: ['read'],
+        removeLabels: ['unread'],
+      });
+    } catch (err) {
+      logger.warn({ err, messageId }, 'AgentMail: failed to mark message as read');
+    }
+  }
 
+  private async poll(): Promise<void> {
     const result = await this.client.inboxes.messages.list(this.inboxId, {
-      after: this.lastPollTime,
+      labels: ['unread'],
       ascending: true,
     });
 
-    // Advance timestamp before processing so any messages arriving during
-    // delivery are caught on the next poll
-    this.lastPollTime = pollStart;
-
     for (const item of result.messages) {
-      if (this.seenIds.has(item.messageId)) continue;
-      this.seenIds.add(item.messageId);
-
       const chatJid = `em:${this.inboxId}`;
       const timestamp = item.timestamp.toISOString();
       const { name: fromName, email: from } = parseFrom(item.from);
-      const subject = item.subject ?? '(no subject)';
-      const threadId = item.threadId;
+
+      // Mark self-sent emails as read immediately to prevent forwarding loops
+      if (this.inboxEmail && from.toLowerCase() === this.inboxEmail.toLowerCase()) {
+        logger.debug({ from }, 'AgentMail: marking self-sent email as read');
+        await this.markRead(item.messageId);
+        continue;
+      }
+
+      // Only respond to allowed senders
+      if (!ALLOWED_SENDERS.map(e => e.toLowerCase()).includes(from.toLowerCase())) {
+        logger.debug({ from }, 'AgentMail: sender not in allowlist, skipping');
+        await this.markRead(item.messageId);
+        continue;
+      }
 
       // Report metadata for chat discovery
       this.opts.onChatMetadata(
@@ -180,8 +181,12 @@ export class AgentMailChannel implements Channel {
           { chatJid, from },
           'Email from unregistered AgentMail inbox (register it first)',
         );
+        await this.markRead(item.messageId);
         continue;
       }
+
+      const subject = item.subject ?? '(no subject)';
+      const threadId = item.threadId;
 
       // Fetch full message to get body (list only returns preview)
       let body = item.preview ?? '';
@@ -225,7 +230,7 @@ export class AgentMailChannel implements Channel {
   }
 
   /**
-   * Reply to the most recent inbound email in this chat.
+   * Reply to the most recent inbound email in this chat, then mark it as read.
    * API key never leaves the host — same security model as Telegram/Discord.
    */
   async sendMessage(jid: string, text: string): Promise<void> {
@@ -240,6 +245,7 @@ export class AgentMailChannel implements Channel {
         text,
         html: toEmailHtml(text),
       });
+      await this.markRead(messageId);
       logger.info({ jid, messageId }, 'AgentMail reply sent');
     } catch (err) {
       logger.error({ jid, messageId, err }, 'AgentMail: failed to send reply');

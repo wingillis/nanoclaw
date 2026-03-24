@@ -5,11 +5,16 @@ import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
   IDLE_TIMEOUT,
+  LLM_ROUTER_BASE_URL,
+  LLM_ROUTER_ENABLED,
+  LLM_ROUTER_LOCAL_MODEL,
+  LLM_ROUTER_LOCAL_PROXY_PORT,
   POLL_INTERVAL,
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
+import { classifyComplexity, startLocalModelProxy } from './llm-router.js';
 import './channels/index.js';
 import {
   getChannelFactory,
@@ -181,6 +186,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
+  // LLM Router: classify complexity and select model profile
+  let modelProfile: 'local' | undefined;
+  if (LLM_ROUTER_ENABLED) {
+    try {
+      const complexity = await classifyComplexity(missedMessages);
+      logger.info({ group: group.name, complexity }, 'LLM router decision');
+      if (complexity === 'simple') modelProfile = 'local';
+    } catch (err) {
+      logger.warn(
+        { group: group.name, err },
+        'LLM router classifier error, falling back to default model',
+      );
+    }
+  }
+
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
   const previousCursor = lastAgentTimestamp[chatJid] || '';
@@ -211,32 +231,38 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+        if (text) {
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+    modelProfile,
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -269,6 +295,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  modelProfile?: 'local',
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -319,6 +346,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        modelProfile,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -482,10 +510,22 @@ async function main(): Promise<void> {
     PROXY_BIND_HOST,
   );
 
+  // Start local model proxy if LLM router is enabled
+  let localProxyServer: import('http').Server | null = null;
+  if (LLM_ROUTER_ENABLED) {
+    localProxyServer = await startLocalModelProxy(
+      LLM_ROUTER_LOCAL_PROXY_PORT,
+      PROXY_BIND_HOST,
+      LLM_ROUTER_BASE_URL,
+      LLM_ROUTER_LOCAL_MODEL,
+    );
+  }
+
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
     proxyServer.close();
+    localProxyServer?.close();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);

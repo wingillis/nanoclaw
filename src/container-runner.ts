@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  CALDAV_PASSWORD,
+  CALDAV_USERNAME,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -14,6 +16,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  LLM_ROUTER_LOCAL_PROXY_PORT,
   OBSIDIAN_VAULT_PATH,
   TIMEZONE,
 } from './config.js';
@@ -42,6 +45,7 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  modelProfile?: 'local';
 }
 
 export interface ContainerOutput {
@@ -225,27 +229,41 @@ function buildVolumeMounts(
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  modelProfile?: 'local',
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
+  // iCloud CalDAV credentials for the calendar container skill
+  if (CALDAV_USERNAME) args.push('-e', `CALDAV_USERNAME=${CALDAV_USERNAME}`);
+  if (CALDAV_PASSWORD) args.push('-e', `CALDAV_PASSWORD=${CALDAV_PASSWORD}`);
+
+  // Route API traffic through the appropriate proxy.
+  // Local profile: local model proxy (port 3002) → llama-server, no real auth needed.
+  // Default:       credential proxy (port 3001) → Anthropic, injects real credentials.
+  const proxyPort =
+    modelProfile === 'local' ? LLM_ROUTER_LOCAL_PROXY_PORT : CREDENTIAL_PROXY_PORT;
   args.push(
     '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${proxyPort}`,
   );
 
-  // Mirror the host's auth method with a placeholder value.
-  // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  if (modelProfile === 'local') {
+    // Local llama-server requires no real credentials
+    args.push('-e', 'ANTHROPIC_API_KEY=local');
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    // Mirror the host's auth method with a placeholder value.
+    // API key mode: SDK sends x-api-key, proxy replaces with real key.
+    // OAuth mode:   SDK exchanges placeholder token for temp API key,
+    //               proxy injects real OAuth token on that exchange request.
+    const authMode = detectAuthMode();
+    if (authMode === 'api-key') {
+      args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+    } else {
+      args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    }
   }
 
   // Runtime-specific args for host gateway resolution
@@ -288,7 +306,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(mounts, containerName, input.modelProfile);
 
   logger.debug(
     {

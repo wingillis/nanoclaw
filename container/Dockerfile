@@ -3,7 +3,7 @@
 
 FROM node:22-slim
 
-# Install system dependencies for Chromium
+# Install system dependencies for Chromium and Python
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
@@ -24,7 +24,11 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast Python package installer)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -45,11 +49,15 @@ RUN npm install
 # Copy source code
 COPY agent-runner/ ./
 
+# Install CalDAV calendar helper (zero external deps, uses Node built-in fetch)
+COPY scripts/ /app/scripts/
+RUN install -m 755 /app/scripts/calendar.mjs /usr/local/bin/calendar
+
 # Build TypeScript
 RUN npm run build
 
 # Create workspace directories
-RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
+RUN mkdir -p /workspace/group /workspace/global /workspace/obsidian /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 
 # Create entrypoint script
 # Container input (prompt, group info) is passed via stdin JSON.

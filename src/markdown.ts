@@ -44,9 +44,13 @@ class TelegramRenderer extends Renderer {
     return (
       token.items
         .map((item, i) => {
-          const marker = token.ordered ? `${(token.start as number || 1) + i}.` : '•';
+          const marker = token.ordered
+            ? `${((token.start as number) || 1) + i}.`
+            : '•';
           // Separate inline content from nested lists
-          const nestedLists = item.tokens.filter((t) => t.type === 'list') as Tokens.List[];
+          const nestedLists = item.tokens.filter(
+            (t) => t.type === 'list',
+          ) as Tokens.List[];
           const inlineTokens = item.tokens.filter((t) => t.type !== 'list');
           const text = this.parser.parseInline(inlineTokens);
           const nested = nestedLists.map((n) => this.list(n)).join('');
@@ -69,7 +73,9 @@ class TelegramRenderer extends Renderer {
       .map((cell) => this.parser.parseInline(cell.tokens))
       .join(' | ');
     const rowsText = token.rows
-      .map((row) => row.map((cell) => this.parser.parseInline(cell.tokens)).join(' | '))
+      .map((row) =>
+        row.map((cell) => this.parser.parseInline(cell.tokens)).join(' | '),
+      )
       .join('\n');
     return `<b>${headerText}</b>\n${rowsText}\n\n`;
   }
@@ -121,7 +127,9 @@ const telegramRenderer = new TelegramRenderer();
  * Telegram HTML mode supports: <b>, <i>, <s>, <code>, <pre>, <a>, <blockquote>.
  */
 export function toTelegramHtml(markdown: string): string {
-  return (marked.parse(markdown, { renderer: telegramRenderer }) as string).trim();
+  return (
+    marked.parse(markdown, { renderer: telegramRenderer }) as string
+  ).trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +156,10 @@ ${body}
 // ---------------------------------------------------------------------------
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function escapeHtmlAttr(text: string): string {
