@@ -8,11 +8,13 @@
  *   calendar list-events [--calendar NAME] [--from ISO_DATE] [--to ISO_DATE]
  *   calendar create-event --title STR --start ISO_DATETIME --end ISO_DATETIME
  *                         [--calendar NAME] [--description STR] [--location STR] [--all-day]
+ *                         [--alert OFFSET]  (e.g. --alert 15m --alert 1h --alert 1d)
  *   calendar update-event --uid UID [--title STR] [--start ISO_DATETIME]
  *                         [--end ISO_DATETIME] [--description STR] [--location STR]
+ *                         [--alert OFFSET]  (replaces existing alarms; omit to preserve them)
  *   calendar delete-event --uid UID [--calendar NAME]
  *
- * Credentials via env: CALDAV_USERNAME (Apple ID), CALDAV_PASSWORD (App-Specific Password)
+ * Credentials via OneCLI proxy — Authorization header injected automatically.
  */
 
 import { randomUUID } from 'crypto';
@@ -21,7 +23,7 @@ const USERNAME = process.env.CALDAV_USERNAME;
 const PASSWORD = process.env.CALDAV_PASSWORD;
 
 if (!USERNAME || !PASSWORD) {
-  console.error('Error: CALDAV_USERNAME and CALDAV_PASSWORD must be set in environment');
+  console.error('Error: CALDAV_USERNAME and CALDAV_PASSWORD must be set in .env');
   process.exit(1);
 }
 
@@ -200,7 +202,20 @@ function parseEvent(ical, url) {
   const results = [];
   for (const [, body] of vevents) {
     const unfold = body.replace(/\r?\n[ \t]/g, '');
-    results.push({
+
+    // Extract VALARM sub-components
+    const alarms = [];
+    const valarmRe = /BEGIN:VALARM([\s\S]*?)END:VALARM/gi;
+    let vm;
+    while ((vm = valarmRe.exec(unfold)) !== null) {
+      const vb = vm[1];
+      const trigger = (vb.match(/^TRIGGER[^:]*:(.+)$/m) || [])[1]?.trim();
+      const action  = (vb.match(/^ACTION:(.+)$/m) || [])[1]?.trim();
+      const desc    = (vb.match(/^DESCRIPTION:(.+)$/m) || [])[1]?.trim();
+      if (trigger) alarms.push({ trigger, action: action || 'DISPLAY', ...(desc ? { description: desc } : {}) });
+    }
+
+    const event = {
       uid: icalProp(unfold, 'UID'),
       title: icalProp(unfold, 'SUMMARY'),
       start: parseIcalDate(icalProp(unfold, 'DTSTART')),
@@ -209,7 +224,9 @@ function parseEvent(ical, url) {
       location: icalProp(unfold, 'LOCATION'),
       allDay: !icalProp(unfold, 'DTSTART')?.includes('T'),
       url,
-    });
+    };
+    if (alarms.length) event.alarms = alarms;
+    results.push(event);
   }
   return results;
 }
@@ -226,7 +243,18 @@ function toIcalDateTime(iso) {
   }
 }
 
-function buildIcal({ uid, title, start, end, description, location, allDay, created }) {
+function parseAlertOffset(str) {
+  const m = str.trim().match(/^(\d+)\s*(m|min|minutes?|h|hr|hours?|d|days?)$/i);
+  if (!m) throw new Error(`Invalid alert offset "${str}". Use formats like "15m", "1h", "2h", "1d".`);
+  const n = parseInt(m[1], 10);
+  const unit = m[2][0].toLowerCase();
+  if (unit === 'm') return `-PT${n}M`;
+  if (unit === 'h') return `-PT${n}H`;
+  if (unit === 'd') return `-P${n}D`;
+  throw new Error(`Unrecognized unit in "${str}"`);
+}
+
+function buildIcal({ uid, title, start, end, description, location, allDay, created }, alarms = []) {
   const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const dtStamp = now.endsWith('Z') ? now : now + 'Z';
   const createdAt = created || dtStamp;
@@ -254,6 +282,13 @@ function buildIcal({ uid, title, start, end, description, location, allDay, crea
   lines.push(`SUMMARY:${title}`);
   if (description) lines.push(`DESCRIPTION:${description.replace(/\n/g, '\\n')}`);
   if (location) lines.push(`LOCATION:${location}`);
+  for (const alarm of alarms) {
+    lines.push('BEGIN:VALARM');
+    lines.push(`ACTION:${alarm.action || 'DISPLAY'}`);
+    lines.push(`TRIGGER:${alarm.trigger}`);
+    if (alarm.description) lines.push(`DESCRIPTION:${alarm.description}`);
+    lines.push('END:VALARM');
+  }
   lines.push('END:VEVENT', 'END:VCALENDAR');
 
   return lines.join('\r\n') + '\r\n';
@@ -353,6 +388,8 @@ async function cmdCreateEvent(args) {
   }
 
   const uid = randomUUID().toUpperCase();
+  const alertRaw = args['--alert'] !== undefined ? [].concat(args['--alert']) : [];
+  const alarms = alertRaw.map(a => ({ trigger: parseAlertOffset(a), action: 'DISPLAY' }));
   const ical = buildIcal({
     uid,
     title,
@@ -361,7 +398,7 @@ async function cmdCreateEvent(args) {
     description: args['--description'] || null,
     location: args['--location'] || null,
     allDay: !!args['--all-day'],
-  });
+  }, alarms);
 
   const eventUrl = cal.url + uid + '.ics';
   const r = await caldavRequest('PUT', eventUrl, ical, {
@@ -410,6 +447,13 @@ async function cmdUpdateEvent(args) {
   const existing = parseEvent(existingIcal, eventUrl)[0];
   if (!existing) throw new Error('Could not parse existing event');
 
+  let alarms;
+  if (args['--alert'] !== undefined) {
+    alarms = [].concat(args['--alert']).map(a => ({ trigger: parseAlertOffset(a), action: 'DISPLAY' }));
+  } else {
+    alarms = existing.alarms || [];
+  }
+
   const updated = buildIcal({
     uid,
     title: args['--title'] || existing.title,
@@ -418,7 +462,7 @@ async function cmdUpdateEvent(args) {
     description: args['--description'] !== undefined ? args['--description'] : existing.description,
     location: args['--location'] !== undefined ? args['--location'] : existing.location,
     allDay: existing.allDay,
-  });
+  }, alarms);
 
   const r = await caldavRequest('PUT', eventUrl, updated, {
     'Content-Type': 'text/calendar; charset=utf-8',
@@ -473,7 +517,12 @@ function parseArgs(argv) {
     if (token.startsWith('--')) {
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith('--')) {
-        args[token] = next;
+        if (token in args) {
+          // Repeated flag → accumulate as array
+          args[token] = [].concat(args[token], next);
+        } else {
+          args[token] = next;
+        }
         i += 2;
       } else {
         args[token] = true;

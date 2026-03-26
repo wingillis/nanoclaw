@@ -17,6 +17,12 @@ const envConfig = readEnvFile([
   'TZ',
 ]);
 const calDavEnv = readEnvFile(['CALDAV_USERNAME', 'CALDAV_PASSWORD']);
+const zaiEnv = readEnvFile([
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+]);
 const llmRouterEnv = readEnvFile([
   'LLM_ROUTER_ENABLED',
   'LLM_ROUTER_BASE_URL',
@@ -133,3 +139,21 @@ export const LLM_ROUTER_LOCAL_PROXY_PORT = parseInt(
     '3002',
   10,
 );
+
+// Z.AI / GLM routing — non-Anthropic backend, credential injected by OneCLI
+// ANTHROPIC_BASE_URL overrides where containers send API requests
+// ANTHROPIC_DEFAULT_*_MODEL overrides which model names the SDK maps to
+export const ZAI_BASE_URL =
+  process.env.ANTHROPIC_BASE_URL || zaiEnv.ANTHROPIC_BASE_URL || null;
+export const ZAI_DEFAULT_OPUS_MODEL =
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+  zaiEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+  null;
+export const ZAI_DEFAULT_SONNET_MODEL =
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+  zaiEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+  null;
+export const ZAI_DEFAULT_HAIKU_MODEL =
+  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+  zaiEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+  null;

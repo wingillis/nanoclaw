@@ -19,6 +19,10 @@ import {
   OBSIDIAN_VAULT_PATH,
   ONECLI_URL,
   TIMEZONE,
+  ZAI_BASE_URL,
+  ZAI_DEFAULT_HAIKU_MODEL,
+  ZAI_DEFAULT_OPUS_MODEL,
+  ZAI_DEFAULT_SONNET_MODEL,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -143,6 +147,9 @@ function buildVolumeMounts(
       settingsFile,
       JSON.stringify(
         {
+          // Enable auto-memory: Claude persists learnings between sessions
+          // https://code.claude.com/docs/en/memory#manage-auto-memory
+          autoMemoryEnabled: true,
           env: {
             // Enable agent swarms (subagent orchestration)
             // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
@@ -150,8 +157,7 @@ function buildVolumeMounts(
             // Load CLAUDE.md from additional mounted directories
             // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
             CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-            // Enable Claude's memory feature (persists user preferences between sessions)
-            // https://code.claude.com/docs/en/memory#manage-auto-memory
+            // Belt-and-suspenders: also set the legacy env var
             CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
           },
         },
@@ -241,6 +247,19 @@ async function buildContainerArgs(
   // iCloud CalDAV credentials for the calendar container skill
   if (CALDAV_USERNAME) args.push('-e', `CALDAV_USERNAME=${CALDAV_USERNAME}`);
   if (CALDAV_PASSWORD) args.push('-e', `CALDAV_PASSWORD=${CALDAV_PASSWORD}`);
+
+  // Z.AI / GLM backend routing — points the SDK at the correct API host
+  // (auth token is injected by OneCLI, never passed here)
+  if (ZAI_BASE_URL) args.push('-e', `ANTHROPIC_BASE_URL=${ZAI_BASE_URL}`);
+  if (ZAI_DEFAULT_OPUS_MODEL)
+    args.push('-e', `ANTHROPIC_DEFAULT_OPUS_MODEL=${ZAI_DEFAULT_OPUS_MODEL}`);
+  if (ZAI_DEFAULT_SONNET_MODEL)
+    args.push(
+      '-e',
+      `ANTHROPIC_DEFAULT_SONNET_MODEL=${ZAI_DEFAULT_SONNET_MODEL}`,
+    );
+  if (ZAI_DEFAULT_HAIKU_MODEL)
+    args.push('-e', `ANTHROPIC_DEFAULT_HAIKU_MODEL=${ZAI_DEFAULT_HAIKU_MODEL}`);
 
   if (modelProfile === 'local') {
     // Local model profile: bypass OneCLI, point directly to local llama-server proxy.

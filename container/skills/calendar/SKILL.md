@@ -31,7 +31,7 @@ calendar list-events --calendar "Work" --from 2026-03-23 --to 2026-03-30
 
 `--calendar` does a case-insensitive substring match. Omit `--from`/`--to` to get all events (may be slow on large calendars).
 
-Each event in the response has: `uid`, `title`, `start`, `end`, `description`, `location`, `allDay`, `calendar`.
+Each event in the response has: `uid`, `title`, `start`, `end`, `description`, `location`, `allDay`, `calendar`. If the event has reminders, an `alarms` array is included with `trigger` (e.g. `-PT15M`), `action`, and optional `description`.
 
 ## Create an event
 
@@ -50,10 +50,17 @@ calendar create-event \
 
 # All-day event
 calendar create-event --title "Conference" --start "2026-03-27" --end "2026-03-28" --all-day
+
+# With a 15-minute reminder
+calendar create-event --title "Dentist" --start "2026-03-25T14:00:00" --end "2026-03-25T15:00:00" --alert 15m
+
+# With multiple reminders (1 day before and 1 hour before)
+calendar create-event --title "Flight" --start "2026-04-10T08:00:00" --end "2026-04-10T12:00:00" --alert 1d --alert 1h
 ```
 
 - Dates must be ISO 8601. Use the user's local time (not UTC) unless they specify otherwise.
 - If `--calendar` is omitted, the event goes to the default calendar (first non-birthday/holidays calendar).
+- `--alert` accepts: `15m`, `30m`, `1h`, `2h`, `1d`, etc. (minutes, hours, or days before the event). Can be repeated for multiple reminders.
 - Returns `{ uid, calendar, url, status: "created" }` on success. Save the `uid` if the user may want to modify it.
 
 ## Update an event
@@ -62,9 +69,12 @@ Get the `uid` from `list-events` first, then:
 
 ```bash
 calendar update-event --uid "A1B2C3D4-..." --title "Updated title" --start "2026-03-24T10:00:00"
+
+# Add a 30-minute reminder (replaces any existing reminders)
+calendar update-event --uid "A1B2C3D4-..." --alert 30m
 ```
 
-Only the fields you pass are changed. Omit fields to keep them unchanged.
+Only the fields you pass are changed. Omit fields to keep them unchanged. If `--alert` is omitted, existing reminders are preserved. Pass `--alert` to replace all reminders.
 
 ## Delete an event
 
@@ -77,7 +87,7 @@ calendar delete-event --uid "A1B2C3D4-..." --calendar "Personal"
 
 ## Error handling
 
-- **Auth error (401/403):** Tell the user to check that `CALDAV_USERNAME` and `CALDAV_PASSWORD` are set correctly in `.env`. The password must be an App-Specific Password from appleid.apple.com → Sign-In and Security → App-Specific Passwords — not the main Apple ID password.
+- **Auth error (401/403):** Check that `CALDAV_USERNAME` (Apple ID email) and `CALDAV_PASSWORD` (App-Specific Password) are set in `.env`. The password must be an App-Specific Password from appleid.apple.com → Sign-In and Security → App-Specific Passwords — not the main Apple ID password.
 - **Event not found:** Ask the user to confirm the UID using `list-events`.
 - **Calendar not found:** Run `list-calendars` and show the user the available names.
 
